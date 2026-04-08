@@ -112,6 +112,7 @@ Interpretation:
 
 What is still open:
 
+- overlay QA is easier now because accepted `middle` detections are numbered in green on saved overlays
 - `scan_20260313_22_74a4d07f84` style overcount / oversplitting
 - large undercount on some raw PDF inputs from `/Users/stephenyu/Downloads/pupate_batch/*.pdf`
 - the gap between raw PDFs and the cleaner PNG truth set in `/Users/stephenyu/Documents/New project/data/test_inputs/clean_pdfs`

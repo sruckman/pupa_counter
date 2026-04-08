@@ -28,6 +28,36 @@ def _draw_component_contour(canvas: np.ndarray, row: pd.Series, color) -> None:
         cv2.drawContours(canvas, [shifted], -1, color, 2)
 
 
+def _draw_instance_label(canvas: np.ndarray, center: tuple[int, int], label: str, color) -> None:
+    stats_box_bottom = 125
+    x = int(center[0] + 8)
+    y = int(center[1] - 8)
+    x = max(5, min(x, canvas.shape[1] - 40))
+    if y < stats_box_bottom:
+        y = int(center[1] + 18)
+    y = max(20, min(y, canvas.shape[0] - 5))
+    cv2.putText(
+        canvas,
+        label,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (255, 255, 255),
+        3,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        canvas,
+        label,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
+
+
 def build_overlay(
     image: np.ndarray,
     instances_df: pd.DataFrame,
@@ -37,13 +67,28 @@ def build_overlay(
 ) -> np.ndarray:
     overlay = image.copy()
     if instances_df is not None and not instances_df.empty:
-        for _, row in instances_df.iterrows():
+        middle_labels = {}
+        middle_df = instances_df.loc[
+            ~instances_df.get("synthetic_instance", pd.Series(False, index=instances_df.index)).astype(bool)
+            & (instances_df.get("band", pd.Series("", index=instances_df.index)) == "middle")
+        ].copy()
+        if not middle_df.empty:
+            middle_df = middle_df.sort_values(["centroid_y", "centroid_x"], kind="mergesort").reset_index()
+            middle_labels = {
+                int(orig_idx): str(display_idx)
+                for display_idx, orig_idx in enumerate(middle_df["index"].tolist(), start=1)
+            }
+
+        for row_idx, row in instances_df.iterrows():
             band = row.get("band", "middle")
             color = BAND_COLORS.get(band, (255, 255, 0))
             _draw_component_contour(overlay, row, color)
             if not bool(row.get("synthetic_instance", False)):
                 center = (int(round(row["centroid_x"])), int(round(row["centroid_y"])))
                 cv2.circle(overlay, center, 4, color, -1)
+                label = middle_labels.get(int(row_idx))
+                if label is not None:
+                    _draw_instance_label(overlay, center, label, color)
 
     if candidate_df is not None and not candidate_df.empty:
         hard_clusters = candidate_df.loc[

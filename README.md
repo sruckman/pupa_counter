@@ -37,6 +37,7 @@ What is solid right now:
 - annotated PNG sheets are handled much better than the older classical-only pipeline
 - the `Cellpose` backend is currently the strongest default choice
 - review artifacts are detailed enough to debug per-image failures
+- overlays now number the accepted `middle`-band detections in green, which makes human QA easier
 - the clean-scan truth subset improved to `MAE = 6.00` in the latest iteration
 
 What is still open:
@@ -189,6 +190,13 @@ Important artifacts:
 - `overlays/*.png`
 - `reports/run_summary.md`
 - `reports/run_summary.html`
+
+Overlay convention:
+
+- orange contour = `top`
+- green contour = `middle`
+- red contour = `bottom`
+- small green numbers = the accepted `middle` instances, ordered top-to-bottom then left-to-right
 
 During long runs, partial progress is also written:
 
