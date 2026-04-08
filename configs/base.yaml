@@ -1,0 +1,186 @@
+project:
+  name: pupa-counter
+  config_version: baseline_v1
+  random_seed: 42
+
+input:
+  raster_dpi: 300
+  accepted_suffixes: [".png", ".jpg", ".jpeg", ".pdf", ".pptx"]
+
+preprocess:
+  auto_crop_black_border: true
+  crop_dark_threshold: 25
+  crop_min_run_ratio: 0.50
+  max_border_crop_fraction: 0.08
+  background_percentile_low: 2
+  background_percentile_high: 98
+  clip_limit: 2.0
+
+blue_mask:
+  enabled: true
+  hsv_lower_1: [85, 40, 40]
+  hsv_upper_1: [140, 255, 255]
+  lab_b_max: 115
+  morphology_open_kernel: 3
+  morphology_close_kernel: 5
+  remove_mode: exclude
+  inpaint_radius: 3
+
+brown_detection:
+  enabled: true
+  min_saturation: 18
+  max_value: 250
+  lab_a_min: 126
+  brown_score_threshold: 0.18
+  adaptive_block_size: 31
+  adaptive_c: -3
+  morphology_open_kernel: 3
+  # Smaller close kernel keeps adjacent pupae from merging into "cluster"
+  # blobs the detector then fails to count. The 3-px close was eating
+  # ~30% of detections on dense images.
+  morphology_close_kernel: 2
+  # Bumped from 20 -> 50 to suppress scan-noise specks on cleaned PDFs.
+  # Calibrated against six user-provided ground-truth counts.
+  min_component_area_px: 50
+  # Grayscale auto-mode: clean / unannotated scans (e.g. the production
+  # PDFs without blue marks) often render pupae as near-black on white.
+  # When the median image saturation falls below grayscale_sat_median_threshold
+  # the detector switches to a saturation-free dark-blob path that uses the
+  # adaptive threshold and a stricter value cap. Set auto_grayscale_mode:
+  # false to force the legacy color-only path.
+  auto_grayscale_mode: true
+  grayscale_sat_median_threshold: 12.0
+  grayscale_max_value: 180
+  # Yellow imprint rejection: brown eggs have lab b* ~140-155, yellow
+  # paper imprints score higher (~160-180). User confirmed only brown
+  # counts as eggs ("棕色的才是卵，浅黄色的只是印记").
+  max_lab_b: 158
+
+components:
+  # Bumped from 20 -> 50 in step with brown_detection.min_component_area_px.
+  min_area_px: 50
+  max_area_px: 2500
+  max_border_touch_ratio: 0.60
+
+rule_filter:
+  min_solidity: 0.55
+  min_eccentricity: 0.55
+  min_aspect_ratio: 1.20
+  min_color_score: 0.20
+  min_local_contrast: 6.0
+  max_blue_overlap_ratio: 0.15
+  cluster_area_multiplier: 2.20
+  # Cluster sanity caps. Clusters bigger than 30x median pupa area, or
+  # taking up more than 0.8% of the page, or hugging the image border,
+  # or essentially white-bright (mean V > 215) are reclassified as
+  # artifacts. This rejects the yellow stain on scan.pdf and the
+  # top/right edge bands on scan0001/scan0005 before they pollute counts.
+  max_cluster_area_multiplier: 30.0
+  max_cluster_image_fraction: 0.008
+  cluster_max_border_touch_ratio: 0.40
+  cluster_max_mean_v: 215.0
+
+split_clusters:
+  enabled: true
+  # Tightened (4 -> 3) and child cap raised (6 -> 8) to split denser
+  # cluster blobs into their constituent eggs. Watershed_min_child_area_px
+  # bumped down (18 -> 14) to keep small children alive.
+  distance_peak_min_distance: 3
+  peak_abs_threshold: 1.0
+  watershed_min_child_area_px: 14
+  max_children_per_cluster: 8
+
+cluster_fallback:
+  enabled: true
+  # Calibration (2026-04-07 evening): user-provided truths scan.pdf=82 and
+  # scan0001.pdf=54 showed any cluster_fallback contribution overcounts.
+  # The estimator was adding multi-pupa estimates for noise blobs that the
+  # cluster sanity filter still let through. Disable add-back; rely on
+  # direct detection alone. The estimates are still computed and saved
+  # (estimated_cluster_count column) for review queue and audit.
+  use_for_counts: false
+  reference_confidence_min: 0.55
+  min_area_ratio: 2.50
+  min_major_axis_ratio: 1.40
+  exclude_split_children: true
+  min_estimated_instances: 2
+  max_estimated_instances: 4
+  area_weight: 0.65
+  major_axis_weight: 0.35
+
+vision_fallback:
+  enabled: false
+  provider: gemini
+  model: gemini-3.1-pro-preview
+  api_base: https://api.openai.com/v1/responses
+  timeout_s: 45
+  max_side_px: 768
+  padding_px: 16
+  max_clusters_per_image: 4
+  confidence_threshold: 0.60
+  use_for_counts: true
+
+counting:
+  anchor_mode: centroid
+  min_final_instances: 2
+  min_span_px: 25
+  # Lowered from 0.65 to 0.58. The new max(saturation, darkness) appearance
+  # score in rule_filter already keeps grayscale pupae at confidence ~0.60,
+  # which the 0.65 floor was rejecting wholesale. Calibrated to 0.55
+  # against six user-provided ground-truth counts on the cleaned PDF set.
+  min_instance_confidence: 0.55
+
+review:
+  flag_low_anchor_confidence: true
+  low_anchor_confidence_threshold: 0.55
+  flag_border_anchor: true
+  border_anchor_threshold: 0.20
+  flag_unresolved_cluster: true
+  unresolved_cluster_min_count: 10
+  unresolved_cluster_ratio_threshold: 0.10
+  flag_high_blue_ratio_threshold: 0.02
+  flag_blue_trust_disagreement_threshold: 5
+  suspicious_color_low: 0.18
+  flag_large_run_diff_threshold: 3
+  previous_counts_csv: null
+
+classifier:
+  enabled: false
+  model_path: null
+  model_type: random_forest
+  probability_threshold: 0.60
+  uncertain_low: 0.40
+  uncertain_high: 0.60
+
+output:
+  save_intermediate_masks: true
+  save_candidate_table: true
+  save_overlays: true
+  save_review_queue: true
+  save_reports: true
+
+detector:
+  # Two backends available:
+  #   classical: brown_mask + watershed split (legacy, fast, MAE 8.17 on
+  #              cleaned PDFs vs user-provided truth)
+  #   cellpose:  learned instance segmentation (slower but MAE 6.17, wins
+  #              on dense overlapping regions like scan0003)
+  # Cellpose now has a light source-aware postprocess:
+  #   - clean images: reject extremely bright + weak-color masks
+  #   - clean PNG exports: optionally add a few tiny, strong classical-only
+  #     misses when the unmatched set is small and clean
+  backend: cellpose
+  cellpose_diameter: null   # null lets cellpose auto-estimate per image
+  cellpose_max_side_px: 2400
+  cellpose_flow_threshold: 0.4
+  cellpose_cellprob_threshold: 0.0
+  clean_filter_max_mean_v: 190.0
+  clean_filter_max_color_score: 0.32
+  clean_png_supplement_enabled: true
+  clean_png_supplement_max_cellpose_count: 60
+  clean_png_supplement_max_unmatched_ratio: 0.16
+  clean_png_supplement_min_area_px: 50
+  clean_png_supplement_max_area_px: 130
+  clean_png_supplement_max_mean_v: 130.0
+  clean_png_supplement_min_color_score: 0.30
+  clean_png_supplement_min_local_contrast: 10.0
