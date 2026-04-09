@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cv2
 import numpy as np
 import pandas as pd
 
@@ -118,3 +119,44 @@ def test_cellpose_split_can_restrict_to_dense_patch_components_only():
     active = split.loc[split["is_active"].astype(bool)]
     assert len(active) == 3
     assert "cp_00002" in active["component_id"].tolist()
+
+
+def test_cellpose_split_can_use_guide_image_to_split_touching_pair():
+    single = np.zeros((80, 80), dtype=bool)
+    single[28:44, 10:22] = True
+
+    merged = np.zeros((80, 80), dtype=bool)
+    rr, cc = np.ogrid[:80, :80]
+    left = ((rr - 40) ** 2) / (10**2) + ((cc - 34) ** 2) / (8**2) <= 1.0
+    right = ((rr - 40) ** 2) / (10**2) + ((cc - 50) ** 2) / (8**2) <= 1.0
+    bridge = ((rr - 40) ** 2) / (7**2) + ((cc - 42) ** 2) / (10**2) <= 1.0
+    merged[left | right | bridge] = True
+
+    frame = _components_from_masks([single, merged])
+    cfg = AppConfig()
+    cfg.detector.cellpose_overlap_split_peak_abs_threshold = 999.0
+    cfg.detector.cellpose_overlap_split_combo_area_ratio = 1.0
+    cfg.detector.cellpose_overlap_split_combo_peak_min_distance = 3
+    cfg.detector.cellpose_overlap_split_combo_peak_abs_threshold = 0.35
+    cfg.detector.cellpose_overlap_split_combo_min_child_area_ratio = 0.18
+
+    guide = np.full((80, 80, 3), 255, dtype=np.uint8)
+    cv_mask = merged.astype(np.uint8) * 255
+    guide[cv_mask > 0] = np.array([210, 170, 130], dtype=np.uint8)
+    guide[34:46, 29:37] = np.array([140, 90, 50], dtype=np.uint8)
+    guide[34:46, 47:55] = np.array([140, 90, 50], dtype=np.uint8)
+
+    unsplit = split_large_cellpose_instances(frame, merged.shape, source_type="annotated_png", cfg=cfg)
+    assert len(unsplit.loc[unsplit["is_active"].astype(bool)]) == 2
+
+    split = split_large_cellpose_instances(
+        frame,
+        merged.shape,
+        source_type="annotated_png",
+        cfg=cfg,
+        guide_image=guide,
+    )
+
+    active = split.loc[split["is_active"].astype(bool)]
+    assert len(active) == 3
+    assert int(split["parent_component_id"].notna().sum()) == 2

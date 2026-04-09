@@ -205,6 +205,7 @@ def run_pipeline(
                     primary_detection_image.shape[:2],
                     source_type=record.source_type,
                     cfg=cfg,
+                    guide_image=primary_feature_image,
                 )
                 components_df = refine_dense_cellpose_patches(
                     dense_refine_image,
@@ -217,6 +218,7 @@ def run_pipeline(
                     primary_detection_image.shape[:2],
                     source_type=record.source_type,
                     cfg=cfg,
+                    guide_image=dense_refine_image,
                     restrict_to_dense_patch=True,
                 )
             features_df = (

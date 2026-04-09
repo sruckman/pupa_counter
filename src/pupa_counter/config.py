@@ -215,6 +215,14 @@ class DetectorConfig:
     cellpose_overlap_split_peak_abs_threshold: float = 1.0
     cellpose_overlap_split_min_child_area_ratio: float = 0.35
     cellpose_overlap_split_max_children: int = 4
+    cellpose_overlap_split_combo_enabled: bool = True
+    cellpose_overlap_split_combo_area_ratio: float = 1.25
+    cellpose_overlap_split_combo_peak_min_distance: int = 3
+    cellpose_overlap_split_combo_peak_abs_threshold: float = 0.35
+    cellpose_overlap_split_combo_min_child_area_ratio: float = 0.22
+    cellpose_overlap_split_combo_max_child_area_ratio: float = 1.45
+    cellpose_overlap_split_combo_brown_weight: float = 0.55
+    cellpose_overlap_split_combo_max_border_touch_ratio: float = 0.12
     cellpose_dense_patch_refine_enabled: bool = True
     cellpose_dense_patch_min_instances: int = 8
     cellpose_dense_patch_dbscan_eps_px: float = 48.0
