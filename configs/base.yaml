@@ -164,8 +164,10 @@ output:
   save_intermediate_masks: true
   save_candidate_table: true
   save_overlays: true
+  overlay_show_middle_labels: false
   save_review_queue: true
   save_reports: true
+  save_running_totals_workbook: true
 
 detector:
   # Two backends available:

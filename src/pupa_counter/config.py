@@ -190,8 +190,10 @@ class OutputConfig:
     save_intermediate_masks: bool = True
     save_candidate_table: bool = True
     save_overlays: bool = True
+    overlay_show_middle_labels: bool = False
     save_review_queue: bool = True
     save_reports: bool = True
+    save_running_totals_workbook: bool = True
 
 
 @dataclass

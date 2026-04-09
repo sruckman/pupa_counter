@@ -64,6 +64,8 @@ def build_overlay(
     geometry: BandGeometry = None,
     flags = None,
     candidate_df: pd.DataFrame = None,
+    *,
+    show_middle_labels: bool = False,
 ) -> np.ndarray:
     overlay = image.copy()
     n_top_5pct = 0
@@ -73,16 +75,17 @@ def build_overlay(
         elif geometry is not None:
             n_top_5pct = int((instances_df["centroid_y"].astype(float) <= float(geometry.upper_five_pct_y)).sum())
         middle_labels = {}
-        middle_df = instances_df.loc[
-            ~instances_df.get("synthetic_instance", pd.Series(False, index=instances_df.index)).astype(bool)
-            & (instances_df.get("band", pd.Series("", index=instances_df.index)) == "middle")
-        ].copy()
-        if not middle_df.empty:
-            middle_df = middle_df.sort_values(["centroid_y", "centroid_x"], kind="mergesort").reset_index()
-            middle_labels = {
-                int(orig_idx): str(display_idx)
-                for display_idx, orig_idx in enumerate(middle_df["index"].tolist(), start=1)
-            }
+        if show_middle_labels:
+            middle_df = instances_df.loc[
+                ~instances_df.get("synthetic_instance", pd.Series(False, index=instances_df.index)).astype(bool)
+                & (instances_df.get("band", pd.Series("", index=instances_df.index)) == "middle")
+            ].copy()
+            if not middle_df.empty:
+                middle_df = middle_df.sort_values(["centroid_y", "centroid_x"], kind="mergesort").reset_index()
+                middle_labels = {
+                    int(orig_idx): str(display_idx)
+                    for display_idx, orig_idx in enumerate(middle_df["index"].tolist(), start=1)
+                }
 
         for row_idx, row in instances_df.iterrows():
             band = row.get("band", "middle")

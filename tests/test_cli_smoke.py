@@ -34,4 +34,6 @@ def test_cli_smoke_run(tmp_path):
 
     assert exit_code == 0
     counts_path = output_root / "baseline_v1" / "counts.csv"
+    workbook_path = output_root / "baseline_v1" / "running_totals.xlsx"
     assert counts_path.exists()
+    assert workbook_path.exists()

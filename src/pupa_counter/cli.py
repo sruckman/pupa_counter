@@ -66,6 +66,8 @@ def main(argv=None) -> int:
         print("run_root=%s" % results["run_root"])
         print("images=%s" % len(results["counts_df"]))
         print("review=%s" % len(results["review_df"]))
+        if results.get("running_totals_workbook"):
+            print("running_totals_workbook=%s" % results["running_totals_workbook"])
         if results["metrics"]:
             print("metrics=%s" % json.dumps(results["metrics"], ensure_ascii=False, sort_keys=True))
         return 0

@@ -39,6 +39,8 @@ What is solid right now:
 - review artifacts are detailed enough to debug per-image failures
 - overlays now number the accepted `middle`-band detections in green, which makes human QA easier
 - outputs now also include a `top 5%` count derived from the same top-to-bottom anchor span
+- each run now also exports a shareable `running_totals.xlsx` workbook and
+  `running_totals.csv` for lab-facing review
 - the clean-scan truth subset improved to `MAE = 6.00` in the latest iteration
 - a lighter `reference` view is now saved for annotated PNG review, so human QA
   can compare the dark `clean_stage1` image against an original-like view
@@ -131,6 +133,23 @@ Print the resolved config:
 python -m pupa_counter.cli print-config --config configs/base.yaml
 ```
 
+## Webcam Research Notes
+
+There is now a first-pass webcam capture prototype at:
+
+```bash
+python scripts/webcam_capture_loop.py --output-dir data/webcam_captures
+```
+
+This is **not** full live counting yet. It is a capture-and-process stepping
+stone that lets the lab test camera placement, framing, and ROI conventions.
+
+The current live-counting direction is documented in:
+
+```text
+WEBCAM_ROADMAP_2026-04-09.md
+```
+
 ## Pipeline Overview
 
 The end-to-end flow in `src/pupa_counter/pipeline.py` is:
@@ -197,6 +216,8 @@ Important artifacts:
 
 - `manifest.csv`
 - `counts.csv`
+- `running_totals.csv`
+- `running_totals.xlsx`
 - `review_queue.csv`
 - `candidate_table.csv`
 - `blue_supervision.csv`
@@ -212,7 +233,9 @@ Overlay convention:
 - green contour = `middle`
 - red contour = `bottom`
 - gold horizontal line = the `5%` guide line
-- small green numbers = the accepted `middle` instances, ordered top-to-bottom then left-to-right
+- green center dots = accepted instances
+- middle-instance numbering is available as an option, but the default overlays
+  now leave labels off to make visual QA easier
 
 Annotated intermediate convention:
 

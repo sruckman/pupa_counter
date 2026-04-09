@@ -49,6 +49,7 @@ from pupa_counter.preprocess.paper_region import estimate_paper_bounds
 from pupa_counter.report.html_report import build_run_report
 from pupa_counter.report.overlay import build_overlay
 from pupa_counter.report.review_queue import build_review_flags, build_review_queue_frame
+from pupa_counter.report.worksheet import export_running_totals_workbook
 from pupa_counter.vision.openai_cluster_counter import estimate_cluster_counts_with_openai
 
 
@@ -423,7 +424,14 @@ def run_pipeline(
 
         if cfg.output.save_overlays:
             overlay_base = reference_view if record.source_type == "annotated_png" else normalized
-            overlay = build_overlay(overlay_base, count_instances, geometry, flags=flags, candidate_df=classified_df)
+            overlay = build_overlay(
+                overlay_base,
+                count_instances,
+                geometry,
+                flags=flags,
+                candidate_df=classified_df,
+                show_middle_labels=cfg.output.overlay_show_middle_labels,
+            )
             save_image(run_dirs["overlays"] / ("%s.png" % record.image_id), overlay)
 
         if cfg.output.save_candidate_table and not classified_df.empty:
@@ -459,6 +467,9 @@ def run_pipeline(
     review_df = build_review_queue_frame(summaries, flags_by_image, str(run_dirs["overlays"]))
     if cfg.output.save_review_queue:
         save_dataframe(run_root / "review_queue.csv", review_df)
+    workbook_path = None
+    if cfg.output.save_running_totals_workbook:
+        workbook_path = export_running_totals_workbook(run_root, counts_df, review_df)
 
     metrics = {}
     if gold_csv is not None and Path(gold_csv).exists():
@@ -493,4 +504,5 @@ def run_pipeline(
         "review_df": review_df,
         "metrics": metrics,
         "comparison_df": comparison_df,
+        "running_totals_workbook": workbook_path,
     }
