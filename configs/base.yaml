@@ -1,0 +1,397 @@
+project:
+  name: pupa-counter
+  config_version: baseline_v1
+  random_seed: 42
+
+input:
+  raster_dpi: 300
+  accepted_suffixes: [".png", ".jpg", ".jpeg", ".pdf", ".pptx"]
+
+preprocess:
+  auto_crop_black_border: true
+  crop_dark_threshold: 25
+  crop_min_run_ratio: 0.50
+  max_border_crop_fraction: 0.08
+  paper_white_min_value: 180
+  paper_white_max_saturation: 80
+  paper_support_ratio_threshold: 0.18
+  paper_dynamic_col_quantile: 0.90
+  paper_dynamic_col_scale: 0.68
+  paper_smooth_window_px: 41
+  paper_bbox_padding_px: 6
+  paper_min_bbox_inside_fraction: 0.78
+  background_percentile_low: 2
+  background_percentile_high: 98
+  clip_limit: 2.0
+
+blue_mask:
+  enabled: true
+  hsv_lower_1: [85, 40, 40]
+  hsv_upper_1: [140, 255, 255]
+  lab_b_max: 115
+  morphology_open_kernel: 3
+  morphology_close_kernel: 5
+  remove_mode: exclude
+  inpaint_radius: 3
+
+brown_detection:
+  enabled: true
+  min_saturation: 18
+  max_value: 250
+  lab_a_min: 126
+  brown_score_threshold: 0.18
+  adaptive_block_size: 31
+  adaptive_c: -3
+  morphology_open_kernel: 3
+  # Smaller close kernel keeps adjacent pupae from merging into "cluster"
+  # blobs the detector then fails to count. The 3-px close was eating
+  # ~30% of detections on dense images.
+  morphology_close_kernel: 2
+  # Bumped from 20 -> 50 to suppress scan-noise specks on cleaned PDFs.
+  # Calibrated against six user-provided ground-truth counts.
+  min_component_area_px: 50
+  # Grayscale auto-mode: clean / unannotated scans (e.g. the production
+  # PDFs without blue marks) often render pupae as near-black on white.
+  # When the median image saturation falls below grayscale_sat_median_threshold
+  # the detector switches to a saturation-free dark-blob path that uses the
+  # adaptive threshold and a stricter value cap. Set auto_grayscale_mode:
+  # false to force the legacy color-only path.
+  auto_grayscale_mode: true
+  grayscale_sat_median_threshold: 12.0
+  grayscale_max_value: 180
+  # Yellow imprint rejection: brown eggs have lab b* ~140-155, yellow
+  # paper imprints score higher (~160-180). User confirmed only brown
+  # counts as eggs ("棕色的才是卵，浅黄色的只是印记").
+  max_lab_b: 158
+
+components:
+  # Bumped from 20 -> 50 in step with brown_detection.min_component_area_px.
+  min_area_px: 50
+  max_area_px: 2500
+  max_border_touch_ratio: 0.60
+
+rule_filter:
+  min_solidity: 0.55
+  min_eccentricity: 0.55
+  min_aspect_ratio: 1.20
+  min_color_score: 0.20
+  min_local_contrast: 6.0
+  max_blue_overlap_ratio: 0.15
+  cluster_area_multiplier: 2.20
+  # Cluster sanity caps. Clusters bigger than 30x median pupa area, or
+  # taking up more than 0.8% of the page, or hugging the image border,
+  # or essentially white-bright (mean V > 215) are reclassified as
+  # artifacts. This rejects the yellow stain on scan.pdf and the
+  # top/right edge bands on scan0001/scan0005 before they pollute counts.
+  max_cluster_area_multiplier: 30.0
+  max_cluster_image_fraction: 0.008
+  cluster_max_border_touch_ratio: 0.40
+  cluster_max_mean_v: 215.0
+
+split_clusters:
+  enabled: true
+  # Tightened (4 -> 3) and child cap raised (6 -> 8) to split denser
+  # cluster blobs into their constituent eggs. Watershed_min_child_area_px
+  # bumped down (18 -> 14) to keep small children alive.
+  distance_peak_min_distance: 3
+  peak_abs_threshold: 1.0
+  watershed_min_child_area_px: 14
+  max_children_per_cluster: 8
+
+cluster_fallback:
+  enabled: true
+  # Calibration (2026-04-07 evening): user-provided truths scan.pdf=82 and
+  # scan0001.pdf=54 showed any cluster_fallback contribution overcounts.
+  # The estimator was adding multi-pupa estimates for noise blobs that the
+  # cluster sanity filter still let through. Disable add-back; rely on
+  # direct detection alone. The estimates are still computed and saved
+  # (estimated_cluster_count column) for review queue and audit.
+  use_for_counts: false
+  reference_confidence_min: 0.55
+  min_area_ratio: 2.50
+  min_major_axis_ratio: 1.40
+  exclude_split_children: true
+  min_estimated_instances: 2
+  max_estimated_instances: 4
+  area_weight: 0.65
+  major_axis_weight: 0.35
+
+vision_fallback:
+  enabled: false
+  provider: gemini
+  model: gemini-3.1-pro-preview
+  api_base: https://api.openai.com/v1/responses
+  timeout_s: 45
+  max_side_px: 768
+  padding_px: 16
+  max_clusters_per_image: 4
+  confidence_threshold: 0.60
+  use_for_counts: true
+
+counting:
+  anchor_mode: centroid
+  min_final_instances: 2
+  min_span_px: 25
+  # Lowered from 0.65 to 0.58. The new max(saturation, darkness) appearance
+  # score in rule_filter already keeps grayscale pupae at confidence ~0.60,
+  # which the 0.65 floor was rejecting wholesale. Calibrated to 0.55
+  # against six user-provided ground-truth counts on the cleaned PDF set.
+  min_instance_confidence: 0.55
+
+review:
+  flag_low_anchor_confidence: true
+  low_anchor_confidence_threshold: 0.55
+  flag_border_anchor: true
+  border_anchor_threshold: 0.20
+  flag_unresolved_cluster: true
+  unresolved_cluster_min_count: 10
+  unresolved_cluster_ratio_threshold: 0.10
+  flag_high_blue_ratio_threshold: 0.02
+  flag_blue_trust_disagreement_threshold: 5
+  suspicious_color_low: 0.18
+  flag_large_run_diff_threshold: 3
+  previous_counts_csv: null
+
+classifier:
+  enabled: false
+  model_path: null
+  model_type: random_forest
+  probability_threshold: 0.60
+  uncertain_low: 0.40
+  uncertain_high: 0.60
+
+output:
+  save_intermediate_masks: true
+  save_candidate_table: true
+  save_overlays: true
+  overlay_show_middle_labels: false
+  overlay_show_unresolved_clusters: false
+  save_review_queue: true
+  save_reports: true
+  save_running_totals_workbook: true
+
+detector:
+  # Two backends available:
+  #   classical: brown_mask + watershed split (legacy, fast, MAE 8.17 on
+  #              cleaned PDFs vs user-provided truth)
+  #   cellpose:  learned instance segmentation (slower but MAE 6.17, wins
+  #              on dense overlapping regions like scan0003)
+  #   cv_peak_deblend: fast counting-first pure CV backend with local dense
+  #                    deblend on suspicious components / patches
+  # Cellpose now has a light source-aware postprocess:
+  #   - clean images: reject extremely bright + weak-color masks
+  #   - clean PNG exports: optionally add a few tiny, strong classical-only
+  #     misses when the unmatched set is small and clean
+  backend: cellpose
+  cv_fast_use_rgb_only: true
+  cv_max_side_px: 1800
+  cv_fg_brown_thresh: 0.06
+  cv_blue_strength_thresh: 0.20
+  cv_blue_value_thresh: 0.40
+  cv_open_kernel: 2
+  cv_close_kernel: 2
+  cv_min_area_px: 40
+  cv_suspicious_area_ratio: 1.75
+  cv_suspicious_major_ratio: 1.65
+  cv_suspicious_solidity_max: 0.75
+  cv_filter_angles_deg: [0, 30, 60, 90, 120, 150]
+  cv_filter_major_px_scale: 0.95
+  cv_filter_minor_px_scale: 0.90
+  cv_peak_min_distance_minor_scale: 0.55
+  cv_peak_threshold_percentile: 99.84
+  cv_local_peak_threshold_percentile: 99.2
+  cv_max_seed_area_ratio: 1.35
+  cv_enable_center_only_multi_emit: true
+  cv_enable_multithresh_fallback: true
+  cv_multithresh_levels: 16
+  cv_multithresh_min_contrast: 0.03
+  cv_post_resplit_enabled: true
+  cv_post_resplit_min_seed_count: 2
+  cv_promote_uncertain_confidence_min: 0.55
+  cv_promote_uncertain_color_score_min: 0.52
+  cv_promote_uncertain_max_mean_v: 180.0
+  cv_promote_uncertain_max_mean_lab_b: 162.0
+  cv_promote_general_uncertain_confidence_min: 0.48
+  cv_promote_general_uncertain_color_score_min: 0.45
+  cv_promote_general_uncertain_max_mean_v: 175.0
+  cv_promote_general_uncertain_max_mean_lab_b: 162.0
+  cv_global_peak_supplement_enabled: false
+  cv_global_peak_exclusion_scale: 2.20
+  cv_global_peak_max_extra_ratio: 0.05
+  cv_global_peak_min_brown_score: 0.20
+  cv_patch_supplement_enabled: false
+  cv_patch_supplement_max_extra_ratio: 0.20
+  cv_patch_supplement_promote_uncertain_confidence_min: 0.50
+  cv_patch_supplement_promote_uncertain_color_score_min: 0.52
+  cv_patch_supplement_max_mean_v: 175.0
+  cv_patch_supplement_max_mean_lab_b: 165.0
+  cv_promote_pairlike_artifacts_enabled: true
+  cv_promote_pairlike_artifacts_color_score_min: 0.56
+  cv_promote_pairlike_artifacts_max_mean_v: 170.0
+  cv_promote_pairlike_artifacts_max_mean_lab_b: 165.0
+  cv_promote_pairlike_artifacts_min_area_px: 45.0
+  cv_artifact_resplit_enabled: true
+  cv_artifact_resplit_color_score_min: 0.45
+  cv_artifact_resplit_min_local_contrast: 15.0
+  cv_artifact_resplit_max_mean_v: 175.0
+  cv_artifact_resplit_max_mean_lab_b: 166.0
+  cv_artifact_resplit_max_border_touch_ratio: 0.25
+  cv_artifact_resplit_min_area_ratio: 1.60
+  cv_artifact_resplit_min_major_ratio: 1.35
+  cv_large_cluster_resplit_enabled: true
+  cv_large_cluster_resplit_color_score_min: 0.42
+  cv_large_cluster_resplit_min_local_contrast: 20.0
+  cv_large_cluster_resplit_max_border_touch_ratio: 0.15
+  cv_large_cluster_resplit_min_area_ratio: 3.00
+  cv_large_cluster_resplit_min_major_ratio: 1.45
+  cv_large_pupa_resplit_enabled: true
+  cv_large_pupa_resplit_color_score_min: 0.48
+  cv_large_pupa_resplit_min_local_contrast: 10.0
+  cv_large_pupa_resplit_max_border_touch_ratio: 0.12
+  cv_large_pupa_resplit_min_area_ratio: 1.45
+  cv_large_pupa_resplit_min_major_ratio: 1.30
+  cv_large_pupa_resplit_min_seed_count: 2
+  cv_large_pupa_resplit_max_seed_count: 3
+  cv_large_pupa_resplit_min_aspect_ratio: 1.45
+  cv_large_pupa_resplit_min_eccentricity: 0.72
+  cv_large_pupa_resplit_max_area_ratio: 2.60
+  cv_large_pupa_resplit_min_child_non_artifact_count: 2
+  cv_large_pupa_resplit_min_child_area_fraction: 0.50
+  cv_large_pupa_resplit_max_child_area_fraction: 1.20
+  cv_large_pupa_resplit_max_child_balance_ratio: 2.20
+  cv_pairlike_resplit_enabled: true
+  cv_pairlike_resplit_min_area_ratio: 1.55
+  cv_pairlike_resplit_max_area_ratio: 3.50
+  cv_pairlike_resplit_min_minor_px: 18.0
+  cv_pairlike_resplit_max_eccentricity: 0.92
+  cv_pairlike_resplit_min_color_score: 0.40
+  cv_pairlike_resplit_min_local_contrast: 8.0
+  cv_pairlike_resplit_max_border_touch_ratio: 0.08
+  cv_pairlike_resplit_max_blue_overlap_ratio: 0.03
+  cv_pairlike_resplit_max_neighbors_60: 4
+  cv_pairlike_resplit_min_non_artifact_children: 2
+  cv_pairlike_resplit_min_child_area_fraction: 0.45
+  cv_pairlike_resplit_max_child_area_fraction: 1.15
+  cv_pairlike_resplit_max_child_balance_ratio: 2.10
+  cv_promote_strong_single_artifacts_enabled: true
+  cv_promote_strong_single_artifacts_color_score_min: 0.54
+  cv_promote_strong_single_artifacts_min_local_contrast: 20.0
+  cv_promote_strong_single_artifacts_max_mean_v: 170.0
+  cv_promote_strong_single_artifacts_max_mean_lab_b: 162.0
+  cv_promote_strong_single_artifacts_max_border_touch_ratio: 0.22
+  cv_promote_strong_single_artifacts_min_aspect_ratio: 1.25
+  cv_promote_strong_single_artifacts_min_eccentricity: 0.55
+  cv_promote_large_single_artifacts_enabled: true
+  cv_promote_large_single_artifacts_color_score_min: 0.52
+  cv_promote_large_single_artifacts_min_local_contrast: 20.0
+  cv_promote_large_single_artifacts_max_mean_v: 175.0
+  cv_promote_large_single_artifacts_max_mean_lab_b: 162.0
+  cv_promote_large_single_artifacts_max_whitespace_ratio: 0.40
+  cv_promote_large_single_artifacts_max_border_touch_ratio: 0.12
+  cv_promote_large_single_artifacts_min_aspect_ratio: 1.35
+  cv_promote_large_single_artifacts_min_eccentricity: 0.72
+  cv_promote_large_single_artifacts_min_area_px: 90.0
+  cv_promote_large_single_artifacts_max_area_px: 450.0
+  cv_suppress_border_split_pupae_enabled: true
+  cv_suppress_border_split_pupae_min_seed_count: 2
+  cv_suppress_border_split_pupae_min_border_touch_ratio: 0.18
+  cv_suppress_border_split_pupae_max_color_score: 0.42
+  cv_weak_child_suppress_enabled: true
+  cv_weak_child_suppress_max_area_px: 80
+  cv_weak_child_suppress_max_color_score: 0.45
+  cv_weak_child_suppress_max_local_contrast: 18.0
+  cv_weak_child_suppress_min_neighbors_60: 3
+  cv_global_candidate_supplement_enabled: false
+  cv_global_candidate_supplement_score_min: 2.20
+  cv_global_candidate_supplement_max_neighbors_60: 2
+  cv_global_candidate_supplement_min_distance_px: 14.0
+  cv_global_candidate_supplement_nms_px: 12.0
+  cellpose_diameter: null   # null lets cellpose auto-estimate per image
+  cellpose_max_side_px: 2400
+  cellpose_flow_threshold: 0.4
+  cellpose_cellprob_threshold: 0.0
+  # Conservative second-pass split for large, blob-like Cellpose masks.
+  # This targets the common "two touching pupae became one fat instance"
+  # failure mode on high-quality annotated sheets.
+  cellpose_overlap_split_enabled: true
+  cellpose_overlap_split_area_ratio: 1.70
+  cellpose_overlap_split_max_aspect_ratio: 1.60
+  cellpose_overlap_split_max_eccentricity: 0.80
+  # Annotated scans often merge two touching pupae into one long dumbbell.
+  # Let annotated overlap-split look at any sufficiently large mask and rely
+  # on multiple distance peaks, instead of requiring the blob to look round.
+  cellpose_overlap_split_annotated_ignore_shape: true
+  cellpose_overlap_split_peak_min_distance: 3
+  cellpose_overlap_split_peak_abs_threshold: 1.0
+  cellpose_overlap_split_min_child_area_ratio: 0.35
+  cellpose_overlap_split_max_children: 4
+  # Dense local colonies sometimes under-split after cleaning. Re-run Cellpose
+  # on the original normalized patch with a slightly smaller diameter, but only
+  # if the patch is already dense and the refined patch adds a modest number of
+  # plausible instances.
+  cellpose_dense_patch_refine_enabled: true
+  cellpose_dense_patch_min_instances: 8
+  cellpose_dense_patch_dbscan_eps_px: 48.0
+  cellpose_dense_patch_dbscan_eps_scale: 1.15
+  cellpose_dense_patch_padding_scale: 1.1
+  cellpose_dense_patch_min_fill_ratio: 0.08
+  cellpose_dense_patch_diameter_scale: 0.82
+  cellpose_dense_patch_min_diameter_px: 18.0
+  cellpose_dense_patch_flow_threshold: 0.35
+  cellpose_dense_patch_cellprob_threshold: -0.10
+  cellpose_dense_patch_min_area_ratio: 0.38
+  cellpose_dense_patch_max_area_ratio: 1.90
+  cellpose_dense_patch_min_extra_instances: 1
+  cellpose_dense_patch_max_gain_ratio: 1.35
+  # Annotated PNGs now run a second Cellpose pass on the normalized image.
+  # We only merge in extra detections inside crowded local regions, and we
+  # dedupe them against the clean-image path instead of replacing the whole
+  # page.
+  cellpose_annotated_dual_path_enabled: true
+  cellpose_annotated_dual_path_min_instances: 6
+  cellpose_annotated_dual_path_padding_scale: 1.0
+  cellpose_annotated_dual_path_min_extra_instances: 1
+  cellpose_annotated_dual_path_max_gain_ratio: 1.45
+  cellpose_annotated_dual_path_max_blue_overlap_ratio: 0.18
+  cellpose_annotated_dual_path_min_confidence: 0.52
+  cellpose_annotated_dual_path_match_iou: 0.22
+  cellpose_annotated_dual_path_match_distance_scale: 0.45
+  cellpose_annotated_dual_path_diameter_scale: 0.82
+  cellpose_annotated_dual_path_min_diameter_px: 18.0
+  cellpose_annotated_dual_path_flow_threshold: 0.35
+  cellpose_annotated_dual_path_cellprob_threshold: -0.10
+  # Some annotated failures are not just "counted too low" but "a touching
+  # pair is ignored entirely". Use the classical split path only for a very
+  # small set of pair-like unmatched blobs.
+  cellpose_annotated_pair_rescue_enabled: true
+  cellpose_annotated_pair_rescue_min_children: 2
+  cellpose_annotated_pair_rescue_max_children: 3
+  cellpose_annotated_pair_rescue_padding_scale: 0.55
+  cellpose_annotated_pair_rescue_min_confidence: 0.45
+  cellpose_annotated_pair_rescue_max_blue_overlap_ratio: 0.15
+  cellpose_annotated_pair_rescue_min_area_ratio: 0.35
+  cellpose_annotated_pair_rescue_max_area_ratio: 1.85
+  cellpose_annotated_pair_rescue_max_gain_ratio: 1.80
+  # Recall-first supplement for annotated PNGs: when Cellpose misses a real
+  # touching pair entirely, allow a small number of strong classical-only
+  # candidates to be added back.
+  cellpose_annotated_png_supplement_enabled: true
+  cellpose_annotated_png_supplement_max_unmatched_ratio: 0.22
+  cellpose_annotated_png_supplement_max_added_count: 14
+  cellpose_annotated_png_supplement_min_area_px: 40
+  cellpose_annotated_png_supplement_max_area_px: 260
+  cellpose_annotated_png_supplement_max_mean_v: 185.0
+  cellpose_annotated_png_supplement_min_color_score: 0.14
+  cellpose_annotated_png_supplement_min_local_contrast: 3.5
+  cellpose_annotated_png_supplement_max_blue_overlap_ratio: 0.10
+  cellpose_annotated_png_supplement_max_border_touch_ratio: 0.35
+  clean_filter_max_mean_v: 190.0
+  clean_filter_max_color_score: 0.32
+  clean_png_supplement_enabled: true
+  clean_png_supplement_max_cellpose_count: 60
+  clean_png_supplement_max_unmatched_ratio: 0.16
+  clean_png_supplement_min_area_px: 50
+  clean_png_supplement_max_area_px: 130
+  clean_png_supplement_max_mean_v: 130.0
+  clean_png_supplement_min_color_score: 0.30
+  clean_png_supplement_min_local_contrast: 10.0

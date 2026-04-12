@@ -1,0 +1,5 @@
+project:
+  config_version: bench_stripped_pngs_cellpose
+
+detector:
+  backend: cellpose
