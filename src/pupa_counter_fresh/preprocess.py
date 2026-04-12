@@ -56,15 +56,19 @@ def downscale(rgb: np.ndarray, scale: float) -> Tuple[np.ndarray, float]:
 # ---------------------------------------------------------------------------
 
 
-def build_blue_mask(rgb: np.ndarray) -> np.ndarray:
+def build_blue_mask(rgb: np.ndarray, *, hsv: np.ndarray | None = None, lab: np.ndarray | None = None) -> np.ndarray:
     """Return an ``HxW`` uint8 mask (0/255) of blue annotation ink.
 
     Combines three permissive checks — HSV band, LAB b* negativity, RGB blue
     dominance with minimum saturation — then applies a light morphological
     open/close so thin pen strokes come through cleanly.
+
+    Pass pre-computed ``hsv`` and ``lab`` to avoid redundant conversions.
     """
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+    if hsv is None:
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    if lab is None:
+        lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
 
     hsv_lower = np.array((90, 40, 40), dtype=np.uint8)
     hsv_upper = np.array((140, 255, 255), dtype=np.uint8)

@@ -347,7 +347,11 @@ def run_detector(
     rgb_native = load_image_rgb(image_path)
     rgb_work, scale_used = downscale(rgb_native, cfg.work_scale)
 
-    blue_mask = build_blue_mask(rgb_work)
+    # Compute color spaces ONCE and share across blue_mask + response
+    hsv_work = cv2.cvtColor(rgb_work, cv2.COLOR_RGB2HSV)
+    lab_work = cv2.cvtColor(rgb_work, cv2.COLOR_RGB2LAB)
+
+    blue_mask = build_blue_mask(rgb_work, hsv=hsv_work, lab=lab_work)
     response = compute_response_map(
         rgb_work,
         blue_mask=blue_mask,
@@ -360,6 +364,8 @@ def run_detector(
         adaptive_large_sigma=cfg.adaptive_large_sigma,
         adaptive_area_threshold_px=cfg.adaptive_area_threshold_px,
         saturation_floor=cfg.raw_response_saturation_floor,
+        hsv=hsv_work,
+        lab=lab_work,
     )
 
     paper_mask = None
@@ -542,39 +548,31 @@ def run_detector(
     if cfg.min_background_brightness > 0 and not peaks_work.empty:
         from scipy import ndimage as _ndi_bright
         gray_work = cv2.cvtColor(rgb_work, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
-        half_bw = 5  # 11×11 window
+        half_bw = 5
         bh, bw = gray_work.shape
-        # Label the allowed mask to find component areas
         _am_gate = allowed_mask > 0
         _am_labels, _am_n = _ndi_bright.label(_am_gate)
-        _am_sizes = np.bincount(_am_labels.ravel()) if _am_n > 0 else np.array([0])
-        bright_keep = []
-        for _, row in peaks_work.iterrows():
-            xw = int(round(float(row["x"])))
-            yw = int(round(float(row["y"])))
-            # Check component area — exempt large components
-            # Exempt detections in "round-ish" components (aspect ratio < 10).
-            # Scanner strips are extreme (aspect 14-69x); real pupa clusters
-            # are typically < 5x. This lets edge-adjacent pupae in wide
-            # components survive while still checking elongated strips.
-            exempt = False
-            if 0 <= yw < _am_labels.shape[0] and 0 <= xw < _am_labels.shape[1]:
+        # Pre-compute component aspect ratios via find_objects (O(1) per lookup)
+        _am_slices = _ndi_bright.find_objects(_am_labels) if _am_n > 0 else []
+        _comp_aspect = {}
+        for _lbl_idx, _sl in enumerate(_am_slices, 1):
+            if _sl is None: continue
+            _cbh = _sl[0].stop - _sl[0].start
+            _cbw = _sl[1].stop - _sl[1].start
+            _comp_aspect[_lbl_idx] = max(_cbh, _cbw) / max(1, min(_cbh, _cbw))
+        # Vectorized brightness check
+        xs = peaks_work["x"].to_numpy(dtype=int)
+        ys = peaks_work["y"].to_numpy(dtype=int)
+        bright_keep = np.ones(len(xs), dtype=bool)
+        for i in range(len(xs)):
+            xw, yw = int(xs[i]), int(ys[i])
+            if 0 <= yw < bh and 0 <= xw < bw:
                 comp_lbl = int(_am_labels[yw, xw])
-                if comp_lbl > 0:
-                    _cy, _cx = np.where(_am_labels == comp_lbl)
-                    _bh = int(_cy.max() - _cy.min() + 1)
-                    _bw = int(_cx.max() - _cx.min() + 1)
-                    _aspect = max(_bh, _bw) / max(1, min(_bh, _bw))
-                    exempt = _aspect < 10.0
-            if exempt:
-                bright_keep.append(True)
-                continue
-            y0 = max(0, yw - half_bw)
-            y1 = min(bh, yw + half_bw + 1)
-            x0 = max(0, xw - half_bw)
-            x1 = min(bw, xw + half_bw + 1)
-            med_bright = float(np.median(gray_work[y0:y1, x0:x1]))
-            bright_keep.append(med_bright >= cfg.min_background_brightness)
+                if comp_lbl > 0 and _comp_aspect.get(comp_lbl, 99) < 10.0:
+                    continue  # exempt round-ish components
+            y0 = max(0, yw - half_bw); y1 = min(bh, yw + half_bw + 1)
+            x0 = max(0, xw - half_bw); x1 = min(bw, xw + half_bw + 1)
+            bright_keep[i] = float(np.median(gray_work[y0:y1, x0:x1])) >= cfg.min_background_brightness
         peaks_work = peaks_work[bright_keep].reset_index(drop=True)
 
     if scale_used != 1.0 and not peaks_work.empty:

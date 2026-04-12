@@ -59,6 +59,8 @@ def _compute_raw_brown_score(
     rgb: np.ndarray,
     *,
     saturation_floor: float = 0.0,
+    hsv: np.ndarray | None = None,
+    lab: np.ndarray | None = None,
 ) -> np.ndarray:
     """Return the raw weighted brown/dark scalar in ``[0, 1]``.
 
@@ -78,8 +80,14 @@ def _compute_raw_brown_score(
     the fix. See docs/DENSE_CLUSTER_RESEARCH_2026-04-11.md for evidence.
     """
     image_float = rgb.astype(np.float32) / 255.0
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    if hsv is None:
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
+    else:
+        hsv = hsv.astype(np.float32)
+    if lab is None:
+        lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    else:
+        lab = lab.astype(np.float32)
 
     saturation = hsv[:, :, 1] / 255.0
     value = hsv[:, :, 2] / 255.0
@@ -188,6 +196,11 @@ def _adaptive_mode(
     Step 3: For each component, decide which sigma to use based on area.
     Step 4: Composite the small-sigma and large-sigma blurs by component.
     """
+    # Short-circuit: when both sigmas are equal, the composite is just
+    # a single Gaussian blur — skip component labeling entirely.
+    if abs(small_sigma - large_sigma) < 1e-6:
+        return _gaussian(raw, small_sigma)
+
     small_blur = _gaussian(raw, small_sigma)
     large_blur = _gaussian(raw, large_sigma)
 
@@ -228,6 +241,8 @@ def compute_response_map(
     adaptive_large_sigma: float = 1.4,
     adaptive_area_threshold_px: int = 500,
     saturation_floor: float = 0.0,
+    hsv: np.ndarray | None = None,
+    lab: np.ndarray | None = None,
 ) -> np.ndarray:
     """Return an ``HxW`` float32 scalar response in ``[0, 1]``.
 
@@ -236,7 +251,7 @@ def compute_response_map(
     bit-for-bit compatible with the v1 ``smooth`` behavior so existing
     runs remain reproducible.
     """
-    raw = _compute_raw_brown_score(rgb, saturation_floor=saturation_floor)
+    raw = _compute_raw_brown_score(rgb, saturation_floor=saturation_floor, hsv=hsv, lab=lab)
 
     if response_mode == "smooth":
         result = _smooth_mode(raw, smooth_sigma)
@@ -289,8 +304,11 @@ def build_allowed_mask(
     must hold, and the *stricter* one governs. (The v0 smoke test caught the
     opposite polarity bug — using ``min`` let through ~97% of the image.)
     """
-    percentile_value = float(np.percentile(response, min_percentile))
-    threshold = max(float(abs_threshold), percentile_value)
+    if min_percentile <= 0:
+        threshold = float(abs_threshold)
+    else:
+        percentile_value = float(np.percentile(response, min_percentile))
+        threshold = max(float(abs_threshold), percentile_value)
 
     mask = (response >= threshold).astype(np.uint8) * 255
 
