@@ -55,7 +55,11 @@ ResponseMode = Literal["smooth", "log", "dog", "adaptive"]
 # ---------------------------------------------------------------------------
 
 
-def _compute_raw_brown_score(rgb: np.ndarray) -> np.ndarray:
+def _compute_raw_brown_score(
+    rgb: np.ndarray,
+    *,
+    saturation_floor: float = 0.0,
+) -> np.ndarray:
     """Return the raw weighted brown/dark scalar in ``[0, 1]``.
 
     Weights are a simplified rebalance of the legacy ``compute_brown_score``.
@@ -64,6 +68,14 @@ def _compute_raw_brown_score(rgb: np.ndarray) -> np.ndarray:
     * ``darkness`` (``1 - V``) — pupae are darker than paper
     * ``saturation`` — warm brown pupae have higher HSV S than cleaned paper
     * ``lab_a`` — positive a* corresponds to the red/brown axis
+
+    ``saturation_floor`` is a hard gate added 2026-04-11: any pixel with
+    HSV saturation below the floor gets zero response, regardless of
+    darkness / brown score. This kills shadows, dirt, and blank-area
+    false positives that have a dark-but-uncolored appearance. Real
+    pupae have saturation 0.20-0.45; shadows and dirt have <0.10.
+    Default 0.0 preserves the legacy behavior; set to 0.08-0.12 for
+    the fix. See docs/DENSE_CLUSTER_RESEARCH_2026-04-11.md for evidence.
     """
     image_float = rgb.astype(np.float32) / 255.0
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
@@ -87,6 +99,19 @@ def _compute_raw_brown_score(rgb: np.ndarray) -> np.ndarray:
         + 0.10 * red_minus_blue
     )
     # Weights sum to 1.0, so ``response`` is already in ``[0, 1]``.
+
+    if saturation_floor > 0:
+        response = np.where(saturation >= float(saturation_floor), response, 0.0)
+
+    # Brightness floor: zero out scanner-bar and other very dark pixels.
+    # Scanner bar: V ≈ 0.05 (pitch black). Pupae: V ≈ 0.40-0.70.
+    # Without this, the scanner bar's darkness score (0.35 * 1.0 = 0.35)
+    # exceeds the allowed mask threshold (0.12), merging bar pixels with
+    # adjacent pupa components and causing peak detection to waste slots
+    # on bar peaks that get edge-killed.
+    brightness_floor = 0.15
+    response = np.where(value >= brightness_floor, response, 0.0)
+
     return response.astype(np.float32)
 
 
@@ -202,6 +227,7 @@ def compute_response_map(
     adaptive_small_sigma: float = 0.6,
     adaptive_large_sigma: float = 1.4,
     adaptive_area_threshold_px: int = 500,
+    saturation_floor: float = 0.0,
 ) -> np.ndarray:
     """Return an ``HxW`` float32 scalar response in ``[0, 1]``.
 
@@ -210,7 +236,7 @@ def compute_response_map(
     bit-for-bit compatible with the v1 ``smooth`` behavior so existing
     runs remain reproducible.
     """
-    raw = _compute_raw_brown_score(rgb)
+    raw = _compute_raw_brown_score(rgb, saturation_floor=saturation_floor)
 
     if response_mode == "smooth":
         result = _smooth_mode(raw, smooth_sigma)
