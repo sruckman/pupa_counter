@@ -1,0 +1,72 @@
+# v2 response-sharpening sweep grid.
+#
+# The sweep driver (scripts/run_fresh_sweep.py) expands each ``variant`` into
+# the cartesian product of its ``axes`` values, merges the result onto
+# ``base`` (constants applied to every run), and invokes the in-process
+# detector. Floors are enforced in the driver: configs that violate
+# ``precision_floor`` or ``recall_floor`` are still recorded in sweep.csv
+# but cannot be the picked winner.
+#
+# Philosophy: start wide, let the loop find the sweet spot, then narrow the
+# grid in a follow-up sweep if the winner is at a boundary.
+
+base:
+  work_scale: 0.67
+  smooth_sigma: 1.2
+  peak_min_distance_px: 10
+  peak_abs_score_threshold: 0.22
+  peak_edge_margin_px: 4
+
+  use_component_split: true
+  component_area_ratio_threshold: 1.20
+  component_min_peak_distance_px: 3
+  component_abs_score_threshold: 0.18
+  component_min_component_area_px: 60
+  component_max_peaks: 20
+
+floors:
+  # v1 was R=0.889, P=0.959. We require v2 to hit at least v1 on recall
+  # (no regression) and stay above 0.94 on precision. The acceptance gate
+  # for the whole plan is tighter: R>=0.94 and P>=0.94 and F1>=0.93.
+  precision_floor: 0.94
+  recall_floor: 0.90
+
+gate:
+  target_recall: 0.94
+  target_precision: 0.94
+  target_f1: 0.93
+
+variants:
+
+  - name: smooth_baseline
+    fixed:
+      response_mode: smooth
+    axes:
+      allowed_abs_threshold: [0.12]
+      component_single_pupa_area_px: [200.0]
+
+  - name: log
+    fixed:
+      response_mode: log
+    axes:
+      log_sigma: [0.8, 1.0, 1.2, 1.4]
+      allowed_abs_threshold: [0.08, 0.10, 0.12]
+      component_single_pupa_area_px: [80.0, 120.0, 160.0, 200.0]
+
+  - name: dog
+    fixed:
+      response_mode: dog
+    axes:
+      dog_sigma_low: [0.6, 0.8, 1.0]
+      dog_sigma_high: [1.6, 2.0, 2.4]
+      allowed_abs_threshold: [0.08, 0.10]
+      component_single_pupa_area_px: [80.0, 120.0, 160.0]
+
+  - name: adaptive
+    fixed:
+      response_mode: adaptive
+    axes:
+      adaptive_small_sigma: [0.6, 0.8, 1.0]
+      adaptive_large_sigma: [1.2, 1.4]
+      allowed_abs_threshold: [0.10, 0.12]
+      component_single_pupa_area_px: [120.0, 160.0, 200.0]

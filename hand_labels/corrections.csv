@@ -1,0 +1,21 @@
+image_id,iter5_pred,fp_numbers,miss_count,notes
+scan_20260313_3,96,"5,8,36",4,"5+8 shadow FPs; 36/37 oversplit of squished pupa w/ yellow residue; miss near #14 #49 #52 #63-64; #15 #18 #19 circles off-center but total correct"
+scan_20260313_7,105,"4,100",3,"4 blank area FP; 100 dirt FP; miss near #5 V-shape pair, #87 edge bottom-left, #96 pair"
+scan_20260313_8,124,,2,"miss near #66/#67 (cluster 3+half, half-at-edge excluded, 3 real -> 2 det -> 1 miss), near #104 (pair); #48 right edge-half excluded per <50% rule"
+scan_20260313_10,94,"82,87",6,"81/82 and 86/87 both oversplit of single pupa; miss near #50, #51, #73 (3 pairs); 3 miss at top-y area below #88/#89/#90 (dense triplet, ZERO detections); ALL errors are dense cluster"
+scan_20260313_15,113,"3,4,5,6,10,106",5,"#3/4/5 scanner-edge FPs; #6 blank FP; #10 #106 dirt FPs; miss near #26, #35, #55 (dense pairs); 1 miss above edge region same y as #35 (1+half, half excluded); miss near #102/#103 (3+half, half excluded); #75 centroid drift"
+scan_20260313_20,115,"1,3,4",4,"#1/3/4 scanner-edge FPs (don't exist); miss above #6 (touching pair); near #12 (pair); near #17/#18 (triplet, 1 missed); top-left edge near #108 at y of #99 (edge-proximity)"
+scan_20260313_22,133,"1,92",6,"#1 FP doesn't exist; oversplit in large cluster #86/87/88/89/90/91/92/93/94/95/101 (11 det, 10 real, 1 extra, #92 as rep); miss near #23, #30, #34, #47, #52 (5 pairs), #96 left-touching pair; #130/131/132 count correct but circles off-center (3 centroid drift)"
+scan_20260313_25,127,2,2,"1/2 oversplit (1 real pupa, 2 det); miss near #59 (pair); miss near #107/108/109 (quad, 4 real 3 det)"
+scan_20260313_30,98,"55,58,76",5,"52-55 oversplit (1 FP); 57-59 imprint half-pupa shape (1 FP, new subtype); 75-77 oversplit per parallelism (1 FP, AMBIGUOUS); miss 39-42 (1 of 5); 26/27 left-edge (2 fully-visible edge misses); near #91 (pair); 47-49 (1 of 4)"
+scan_20260313_35,113,"2,23,50,69",4,"3 dirt FPs (1/2, 22/23, 49/50 — scan_35 is dirty); 63/66/67/69 1 extra (unspecified); miss near #15/16/17 quad, #56/#82/#58 pairs; count-level delta = 0 but 8 distinct errors — classic FP/miss cancellation"
+scan_20260313_40,66,,0,
+scan_20260313_50,115,,0,
+scan_20260313_55,100,,0,
+scan_20260313_60,93,,0,
+scan_20260313_65,94,,0,
+scan_20260313_70,96,,0,
+scan_20260313_74,103,,0,
+scan_20260313_80,110,,0,
+scan_20260313_90,86,,0,
+scan_20260313_95,119,,0,

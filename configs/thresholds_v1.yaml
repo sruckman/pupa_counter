@@ -1,0 +1,119 @@
+project:
+  name: pupa-counter
+  config_version: thresholds_v1
+  random_seed: 42
+
+input:
+  raster_dpi: 300
+  accepted_suffixes: [".png", ".jpg", ".jpeg", ".pdf", ".pptx"]
+
+preprocess:
+  auto_crop_black_border: true
+  crop_dark_threshold: 25
+  crop_min_run_ratio: 0.50
+  max_border_crop_fraction: 0.08
+  background_percentile_low: 2
+  background_percentile_high: 98
+  clip_limit: 2.0
+
+blue_mask:
+  enabled: true
+  hsv_lower_1: [85, 40, 40]
+  hsv_upper_1: [140, 255, 255]
+  lab_b_max: 115
+  morphology_open_kernel: 3
+  morphology_close_kernel: 5
+  remove_mode: exclude
+  inpaint_radius: 3
+
+brown_detection:
+  enabled: true
+  min_saturation: 18
+  max_value: 250
+  lab_a_min: 126
+  brown_score_threshold: 0.18
+  adaptive_block_size: 31
+  adaptive_c: -3
+  morphology_open_kernel: 3
+  morphology_close_kernel: 3
+  min_component_area_px: 20
+
+components:
+  min_area_px: 20
+  max_area_px: 2500
+  max_border_touch_ratio: 0.60
+
+rule_filter:
+  min_solidity: 0.55
+  min_eccentricity: 0.55
+  min_aspect_ratio: 1.20
+  min_color_score: 0.20
+  min_local_contrast: 6.0
+  max_blue_overlap_ratio: 0.15
+  cluster_area_multiplier: 2.20
+
+split_clusters:
+  enabled: true
+  distance_peak_min_distance: 4
+  peak_abs_threshold: 1.0
+  watershed_min_child_area_px: 18
+  max_children_per_cluster: 6
+
+cluster_fallback:
+  enabled: true
+  use_for_counts: false
+  reference_confidence_min: 0.55
+  min_area_ratio: 1.80
+  min_major_axis_ratio: 1.30
+  exclude_split_children: true
+  min_estimated_instances: 2
+  max_estimated_instances: 8
+  area_weight: 0.65
+  major_axis_weight: 0.35
+
+vision_fallback:
+  enabled: false
+  provider: gemini
+  model: gemini-3.1-pro-preview
+  api_base: https://api.openai.com/v1/responses
+  timeout_s: 45
+  max_side_px: 768
+  padding_px: 16
+  max_clusters_per_image: 4
+  confidence_threshold: 0.60
+  use_for_counts: true
+
+counting:
+  anchor_mode: centroid
+  min_final_instances: 2
+  min_span_px: 25
+  min_instance_confidence: 0.65
+
+review:
+  flag_low_anchor_confidence: true
+  low_anchor_confidence_threshold: 0.55
+  flag_border_anchor: true
+  border_anchor_threshold: 0.20
+  flag_unresolved_cluster: true
+  unresolved_cluster_min_count: 10
+  unresolved_cluster_ratio_threshold: 0.10
+  flag_high_blue_ratio_threshold: 0.02
+  flag_blue_trust_disagreement_threshold: 5
+  suspicious_color_low: 0.18
+  flag_large_run_diff_threshold: 3
+  previous_counts_csv: null
+
+classifier:
+  enabled: false
+  model_path: null
+  model_type: random_forest
+  probability_threshold: 0.60
+  uncertain_low: 0.40
+  uncertain_high: 0.60
+
+output:
+  save_intermediate_masks: true
+  save_candidate_table: true
+  save_overlays: true
+  save_review_queue: true
+  save_reports: true
